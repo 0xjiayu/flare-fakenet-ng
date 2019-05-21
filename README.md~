@@ -79,7 +79,7 @@ install dependencies as follows:
 
 2) Install Python dependencies:
 
-    pip install pydivert dnslib dpkt pyopenssl pyftpdlib netifaces dnspython
+    pip install pydivert dnslib dpkt pyopenssl pyftpdlib netifaces
 
    *NOTE*: pydivert will also download and install WinDivert library and
    driver in the `%PYTHONHOME%\DLLs` directory. FakeNet-NG bundles those
