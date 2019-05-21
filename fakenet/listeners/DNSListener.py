@@ -4,6 +4,7 @@ import threading
 import netifaces
 import SocketServer
 from dnslib import *
+from dns.resolver import Resolver    # For mx/txt records querying
 
 import ssl
 import socket
@@ -108,83 +109,106 @@ class DNSHandler():
                 # Create a custom response to the query
                 response = DNSRecord(DNSHeader(id=d.header.id, bitmap=d.header.bitmap, qr=1, aa=1, ra=1), q=d.q)
 
-                if qtype == 'A':
-                    # Get fake record from the configuration or use the external address
-                    fake_record = self.server.config.get('responsea', None)
+                # Check TargetDomains, Added by jiayu
+                q_domains = self.config.get("targetdomains")
+                
+                if q_domains and qname != q_domains and qname not in q_domains: # Query real records manually and return corresponding response
+                    resolv_conf = self.config.get("resolvconf", "/etc/resolv.conf")
+                    dns_resolver = Resolver(filename = resolv_conf)
 
-                    # msftncsi does request ipv6 but we only support v4 for now
-                    #TODO integrate into randomized/custom responses. Keep it simple for now.
-                    if 'dns.msftncsi.com' in qname:
-                        fake_record = '131.107.255.225'
+                    if qtype == 'A':
+                        ars = dns_resolver.query(qname, "A")
+                        for ar in ars:
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](a.address)))
+                    elif qtype == 'MX':
+                        mxrs = dns_resolver.query(qname, "MX")
+                        for mx in mxrs:
+                            mx_str = mx.exchange.to_text()
+                            if mx_str[-1] == '.': mx_str = mx_str[:-1]
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](mx_str)))
+                    elif qtype == 'TXT':
+                        txt_recs = dns_resolver.query(qname, "TXT")
+                        for txt_rec in txt_recs:
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](txt_rec.to_text())))
 
-                    # Using socket.gethostbyname(socket.gethostname()) will return
-                    # 127.0.1.1 on Ubuntu systems that automatically add this entry
-                    # to /etc/hosts at install time or at other times. To produce a
-                    # plug-and-play user experience when using FakeNet for Linux,
-                    # we can't ask users to maintain /etc/hosts (which may involve
-                    # resolveconf or other work). Instead, we will give users a
-                    # choice:
-                    #
-                    #  * Configure a static IP, e.g. 192.0.2.123
-                    #    Returns that IP
-                    #
-                    #  * Set the DNS Listener DNSResponse to "GetHostByName"
-                    #    Returns socket.gethostbyname(socket.gethostname())
-                    #
-                    #  * Set the DNS Listener DNSResponse to "GetFirstNonLoopback"
-                    #    Returns the first non-loopback IP in use by the system
-                    #
-                    # If the DNSResponse setting is omitted, the listener will
-                    # default to getting the first non-loopback IPv4 address (for A
-                    # records).
-                    #
-                    # The DNSResponse setting was previously statically set to
-                    # 192.0.2.123, which for local scenarios works fine in Windows
-                    # standalone use cases because all connections to IP addresses
-                    # are redirected by Diverter. Changing the default setting to 
-                    #
-                    # IPv6 is not yet implemented, but when it is, it will be
-                    # necessary to consider how to get similar behavior to
+                else:
+                    if qtype == 'A':
+                        # Get fake record from the configuration or use the external address
+                        fake_record = self.server.config.get('responsea', None)
 
-                    if fake_record == 'GetFirstNonLoopback':
-                        for iface in netifaces.interfaces():
-                            for link in netifaces.ifaddresses(iface)[netifaces.AF_INET]:
-                                if 'addr' in link:
-                                    addr = link['addr']
-                                    if not addr.startswith('127.'):
-                                        fake_record = addr
-                                        break
-                    elif fake_record == 'GetHostByName' or fake_record is None:
-                        fake_record = socket.gethostbyname(socket.gethostname())
+                        # msftncsi does request ipv6 but we only support v4 for now
+                        #TODO integrate into randomized/custom responses. Keep it simple for now.
+                        if 'dns.msftncsi.com' in qname:
+                            fake_record = '131.107.255.225'
 
-                    if self.server.nxdomains > 0:
-                        self.server.logger.info('Ignoring query. NXDomains:' +
-                                                 ' %d', self.server.nxdomains)
-                        self.server.nxdomains -= 1
-                    else:
+                        # Using socket.gethostbyname(socket.gethostname()) will return
+                        # 127.0.1.1 on Ubuntu systems that automatically add this entry
+                        # to /etc/hosts at install time or at other times. To produce a
+                        # plug-and-play user experience when using FakeNet for Linux,
+                        # we can't ask users to maintain /etc/hosts (which may involve
+                        # resolveconf or other work). Instead, we will give users a
+                        # choice:
+                        #
+                        #  * Configure a static IP, e.g. 192.0.2.123
+                        #    Returns that IP
+                        #
+                        #  * Set the DNS Listener DNSResponse to "GetHostByName"
+                        #    Returns socket.gethostbyname(socket.gethostname())
+                        #
+                        #  * Set the DNS Listener DNSResponse to "GetFirstNonLoopback"
+                        #    Returns the first non-loopback IP in use by the system
+                        #
+                        # If the DNSResponse setting is omitted, the listener will
+                        # default to getting the first non-loopback IPv4 address (for A
+                        # records).
+                        #
+                        # The DNSResponse setting was previously statically set to
+                        # 192.0.2.123, which for local scenarios works fine in Windows
+                        # standalone use cases because all connections to IP addresses
+                        # are redirected by Diverter. Changing the default setting to 
+                        #
+                        # IPv6 is not yet implemented, but when it is, it will be
+                        # necessary to consider how to get similar behavior to
+
+                        if fake_record == 'GetFirstNonLoopback':
+                            for iface in netifaces.interfaces():
+                                for link in netifaces.ifaddresses(iface)[netifaces.AF_INET]:
+                                    if 'addr' in link:
+                                        addr = link['addr']
+                                        if not addr.startswith('127.'):
+                                            fake_record = addr
+                                            break
+                        elif fake_record == 'GetHostByName' or fake_record is None:
+                            fake_record = socket.gethostbyname(socket.gethostname())
+
+                        if self.server.nxdomains > 0:
+                            self.server.logger.info('Ignoring query. NXDomains:' +
+                                                     ' %d', self.server.nxdomains)
+                            self.server.nxdomains -= 1
+                        else:
+                            self.server.logger.debug('Responding with \'%s\'',
+                                                     fake_record)
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](fake_record)))
+
+                    elif qtype == 'MX':
+
+                        fake_record = self.server.config.get('responsemx', 'mail.evil.com')
+
+                        # dnslib doesn't like trailing dots
+                        if fake_record[-1] == ".": fake_record = fake_record[:-1]
+
                         self.server.logger.debug('Responding with \'%s\'',
                                                  fake_record)
                         response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](fake_record)))
 
-                elif qtype == 'MX':
 
-                    fake_record = self.server.config.get('responsemx', 'mail.evil.com')
+                    elif qtype == 'TXT':
 
-                    # dnslib doesn't like trailing dots
-                    if fake_record[-1] == ".": fake_record = fake_record[:-1]
+                        fake_record = self.server.config.get('responsetxt', 'FAKENET')
 
-                    self.server.logger.debug('Responding with \'%s\'',
-                                             fake_record)
-                    response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](fake_record)))
-
-
-                elif qtype == 'TXT':
-
-                    fake_record = self.server.config.get('responsetxt', 'FAKENET')
-
-                    self.server.logger.debug('Responding with \'%s\'', 
-                                             fake_record)
-                    response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](fake_record)))
+                        self.server.logger.debug('Responding with \'%s\'', 
+                                                 fake_record)
+                        response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](fake_record)))
 
                 response = response.pack()
                 
