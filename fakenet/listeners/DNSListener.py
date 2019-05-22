@@ -114,13 +114,14 @@ class DNSHandler():
                 target_domain_lst = [item.strip().lower() for item in target_domains.split(',')]
                 
                 if len(target_domain_lst) > 0 and qname not in target_domain_lst: # Query real records manually and return corresponding response
+                    self.server.logger.info("<%s> is not the targeted domain, FakeNet will respond with the real records.", qname)
                     resolv_conf = self.server.config.get("resolvconf", "/etc/resolv.conf")
                     dns_resolver = Resolver(filename = resolv_conf)
 
                     if qtype == 'A':
                         ars = dns_resolver.query(qname, "A")
                         for ar in ars:
-                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](a.address)))
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](ar.address)))
                     elif qtype == 'MX':
                         mxrs = dns_resolver.query(qname, "MX")
                         for mx in mxrs:
@@ -130,9 +131,10 @@ class DNSHandler():
                     elif qtype == 'TXT':
                         txt_recs = dns_resolver.query(qname, "TXT")
                         for txt_rec in txt_recs:
-                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](txt_rec.to_text())))
+                            response.add_answer(RR(qname, getattr(QTYPE,qtype), rdata=RDMAP[qtype](txt_rec.to_text()[1:-1])))
 
                 else:
+                    self.server.logger.info("<%s> is the targeted domain, FakeNet will respond with fake records.", qname)
                     if qtype == 'A':
                         # Get fake record from the configuration or use the external address
                         fake_record = self.server.config.get('responsea', None)
