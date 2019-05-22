@@ -110,10 +110,11 @@ class DNSHandler():
                 response = DNSRecord(DNSHeader(id=d.header.id, bitmap=d.header.bitmap, qr=1, aa=1, ra=1), q=d.q)
 
                 # Check TargetDomains, Added by jiayu
-                q_domains = self.config.get("targetdomains")
+                target_domains = self.server.config.get("targetdomains")
+                target_domain_lst = [item.strip().lower() for item in target_domains.split(',')]
                 
-                if q_domains and qname != q_domains and qname not in q_domains: # Query real records manually and return corresponding response
-                    resolv_conf = self.config.get("resolvconf", "/etc/resolv.conf")
+                if len(target_domain_lst) > 0 and qname not in q_domains: # Query real records manually and return corresponding response
+                    resolv_conf = self.server.config.get("resolvconf", "/etc/resolv.conf")
                     dns_resolver = Resolver(filename = resolv_conf)
 
                     if qtype == 'A':
