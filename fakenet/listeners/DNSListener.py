@@ -113,7 +113,7 @@ class DNSHandler():
                 target_domains = self.server.config.get("targetdomains")
                 target_domain_lst = [item.strip().lower() for item in target_domains.split(',')]
                 
-                if len(target_domain_lst) > 0 and qname not in q_domains: # Query real records manually and return corresponding response
+                if len(target_domain_lst) > 0 and qname not in target_domain_lst: # Query real records manually and return corresponding response
                     resolv_conf = self.server.config.get("resolvconf", "/etc/resolv.conf")
                     dns_resolver = Resolver(filename = resolv_conf)
 
