@@ -109,8 +109,8 @@ class DNSHandler():
                 # Create a custom response to the query
                 response = DNSRecord(DNSHeader(id=d.header.id, bitmap=d.header.bitmap, qr=1, aa=1, ra=1), q=d.q)
 
-                # Check TargetDomains, Added by jiayu
-                target_domains = self.server.config.get("targetdomains")
+                # Check DomainWhiteList, Added by jiayu
+                target_domains = self.server.config.get("domainwhitelist")
                 target_domain_lst = [item.strip().lower() for item in target_domains.split(',')]
                 
                 if len(target_domain_lst) > 0 and qname not in target_domain_lst: # Query real records manually and return corresponding response
